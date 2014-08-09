@@ -62,12 +62,17 @@
 
 extern void sdioh_sdmmc_devintr_off(sdioh_info_t *sd);
 extern void sdioh_sdmmc_devintr_on(sdioh_info_t *sd);
+extern int sdio_reset_comm(struct mmc_card *card);
 
 int sdio_function_init(void);
 void sdio_function_cleanup(void);
 
 #define DESCRIPTION "bcmsdh_sdmmc Driver"
 #define AUTHOR "Broadcom Corporation"
+
+#ifdef CUSTOMER_HW4
+void dhd_reset_chip(void);
+#endif
 
 /* module param defaults */
 static int clockoverride = 0;
@@ -82,7 +87,6 @@ PBCMSDH_SDMMC_INSTANCE gInstance;
 
 extern int bcmsdh_probe(struct device *dev);
 extern int bcmsdh_remove(struct device *dev);
-struct device sdmmc_dev;
 
 static int bcmsdh_sdmmc_probe(struct sdio_func *func,
                               const struct sdio_device_id *id)
@@ -95,14 +99,29 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 	sd_trace(("sdio_device: 0x%04x\n", func->device));
 	sd_trace(("Function#: 0x%04x\n", func->num));
 
+	/*Linux native mmc stack enables high speed only if card's CCCR
+	version >=1.20. BCM4329 reports CCCR Version 1.10 but it supports
+	high speed*/
+#ifdef MMC_SDIO_BROKEN_CCCR_REV
+        if( func->vendor == SDIO_VENDOR_ID_BROADCOM && \
+                func->device == SDIO_DEVICE_ID_BROADCOM_4329)
+        {
+                sd_trace(("setting high speed support ignoring card CCCR\n"));
+                func->card->cccr.high_speed = 1;
+        }
+#endif
 	if (func->num == 1) {
+#ifdef CUSTOMER_HW4
+                dhd_reset_chip();
+                sdio_reset_comm(func->card);
+#endif
 		sdio_func_0.num = 0;
 		sdio_func_0.card = func->card;
 		gInstance->func[0] = &sdio_func_0;
 		if(func->device == 0x4) { /* 4318 */
 			gInstance->func[2] = NULL;
 			sd_trace(("NIC found, calling bcmsdh_probe...\n"));
-			ret = bcmsdh_probe(&sdmmc_dev);
+			ret = bcmsdh_probe(&func->dev);
 		}
 	}
 
@@ -110,7 +129,7 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 
 	if (func->num == 2) {
 		sd_trace(("F2 found, calling bcmsdh_probe...\n"));
-		ret = bcmsdh_probe(&sdmmc_dev);
+		ret = bcmsdh_probe(&func->dev);
 	}
 
 	return ret;
@@ -126,7 +145,7 @@ static void bcmsdh_sdmmc_remove(struct sdio_func *func)
 
 	if (func->num == 2) {
 		sd_trace(("F2 found, calling bcmsdh_remove...\n"));
-		bcmsdh_remove(&sdmmc_dev);
+		bcmsdh_remove(&func->dev);
 	}
 }
 
@@ -250,9 +269,7 @@ int sdio_function_init(void)
 	if (!gInstance)
 		return -ENOMEM;
 
-	bzero(&sdmmc_dev, sizeof(sdmmc_dev));
 	error = sdio_register_driver(&bcmsdh_sdmmc_driver);
-
 
 	return error;
 }
@@ -264,7 +281,6 @@ extern int bcmsdh_remove(struct device *dev);
 void sdio_function_cleanup(void)
 {
 	sd_trace(("%s Enter\n", __FUNCTION__));
-
 
 	sdio_unregister_driver(&bcmsdh_sdmmc_driver);
 

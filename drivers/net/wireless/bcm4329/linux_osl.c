@@ -154,10 +154,9 @@ osl_attach(void *pdev, uint bustype, bool pkttag)
 	gfp_t flags;
 
 	flags = (in_atomic()) ? GFP_ATOMIC : GFP_KERNEL;
-	osh = kmalloc(sizeof(osl_t), flags);
+	osh = kzalloc(sizeof(osl_t), flags);
 	ASSERT(osh);
 
-	bzero(osh, sizeof(osl_t));
 
 	
 	ASSERT(ABS(BCME_LAST) == (ARRAYSIZE(linuxbcmerrormap) - 1));
@@ -246,8 +245,10 @@ void*
 osl_pktget(osl_t *osh, uint len)
 {
 	struct sk_buff *skb;
+	gfp_t flags;
 
-	if ((skb = dev_alloc_skb(len))) {
+	flags = (in_atomic()) ? GFP_ATOMIC : GFP_KERNEL;
+	if ((skb = __dev_alloc_skb(len, flags))) {
 		skb_put(skb, len);
 		skb->priority = 0;
 
